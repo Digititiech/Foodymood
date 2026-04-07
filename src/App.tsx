@@ -52,11 +52,23 @@ type KitchenOrder = {
 
 const todayIsoDate = () => new Date().toISOString().split('T')[0];
 
-async function apiRequest<T>(path: string, opts?: { method?: string; body?: unknown; token?: string }) {
-  const res = await fetch(path, {
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+const functionsBaseUrl = `${supabaseUrl.replace(/\/$/, '')}/functions/v1`;
+
+async function edgeRequest<T>(
+  fn: string,
+  opts?: { method?: string; body?: unknown; token?: string; query?: Record<string, string | undefined> }
+) {
+  const qs = opts?.query
+    ? `?${new URLSearchParams(Object.entries(opts.query).filter(([, v]) => typeof v === 'string') as Array<[string, string]>).toString()}`
+    : '';
+
+  const res = await fetch(`${functionsBaseUrl}/${fn}${qs}`, {
     method: opts?.method ?? (opts?.body ? 'POST' : 'GET'),
     headers: {
-      ...(opts?.token ? { Authorization: `Bearer ${opts.token}` } : {}),
+      apikey: supabaseAnonKey,
+      authorization: `Bearer ${opts?.token || supabaseAnonKey}`,
       ...(opts?.body ? { 'Content-Type': 'application/json' } : {}),
     },
     body: opts?.body ? JSON.stringify(opts.body) : undefined,
@@ -294,14 +306,14 @@ const UserDashboard = ({ user, accessToken }: { user: UserData; accessToken: str
     try {
       const date = todayIsoDate();
       const [subRaw, menuRows, orderRows] = await Promise.all([
-        apiRequest<Subscription | { message: string }>(`/api/subscription/${user.id}`, { token: accessToken }),
-        apiRequest<Array<{ menu_date: string; meals: Meal | null }>>(`/api/menu?date=${date}`),
-        apiRequest<Order[]>(`/api/orders/${user.id}`, { token: accessToken }),
+        edgeRequest<Subscription | null>('get-subscription', { token: accessToken }),
+        edgeRequest<Array<{ menu_date: string; meals: Meal | null }>>('get-menu', { query: { date } }),
+        edgeRequest<Order[]>('get-orders', { token: accessToken }),
       ]);
 
       if (!mountedRef.current) return;
 
-      setSubscription('message' in (subRaw as any) ? null : (subRaw as Subscription));
+      setSubscription(subRaw);
       setTodayMeals((menuRows ?? []).map((r) => r.meals).filter((m): m is Meal => Boolean(m)));
       setOrders(orderRows ?? []);
     } catch (err: any) {
@@ -370,9 +382,9 @@ const UserDashboard = ({ user, accessToken }: { user: UserData; accessToken: str
         return;
       }
       try {
-        await apiRequest(`/api/delivery/check/${encodeURIComponent(zipCode.trim())}`);
+        await edgeRequest('check-zip', { query: { zip: zipCode.trim() } });
       } catch (err: any) {
-        setMessage({ type: 'error', text: err?.message ?? 'Invalid ZIP' });
+        setMessage({ type: 'error', text: err?.message ?? 'Delivery not available in your area' });
         return;
       }
     }
@@ -381,9 +393,8 @@ const UserDashboard = ({ user, accessToken }: { user: UserData; accessToken: str
 
     setLoading(true);
     try {
-      await apiRequest<{ orderId: string; message: string }>(`/api/orders`, {
+      await edgeRequest<{ orderId: string; message: string }>('create-order', {
         token: accessToken,
-        method: 'POST',
         body: {
           subscriptionId: subscription.id,
           deliveryType,
@@ -638,7 +649,7 @@ const AdminDashboard = ({ accessToken }: { accessToken: string }) => {
     setMessage(null);
     try {
       const [statsData, mealsRes] = await Promise.all([
-        apiRequest<AdminStats>('/api/admin/stats', { token: accessToken }),
+        edgeRequest<AdminStats>('admin-stats', { token: accessToken }),
         supabase.from('meals').select('id, name, description, category, image_url').eq('is_active', true).order('created_at', { ascending: false }),
       ]);
 
@@ -669,9 +680,8 @@ const AdminDashboard = ({ accessToken }: { accessToken: string }) => {
     setSaving(true);
     setMessage(null);
     try {
-      await apiRequest('/api/admin/menu', {
+      await edgeRequest('admin-menu', {
         token: accessToken,
-        method: 'POST',
         body: { date, mealIds: selectedMeals },
       });
       setMessage({ type: 'success', text: 'Menu saved' });
@@ -786,7 +796,7 @@ const KitchenDashboard = ({ accessToken }: { accessToken: string }) => {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await apiRequest<KitchenOrder[]>('/api/kitchen/orders', { token: accessToken });
+      const data = await edgeRequest<KitchenOrder[]>('kitchen-orders', { token: accessToken });
       setOrders(data ?? []);
     } catch (err: any) {
       setMessage({ type: 'error', text: err?.message ?? 'Failed to load kitchen orders' });
@@ -804,7 +814,7 @@ const KitchenDashboard = ({ accessToken }: { accessToken: string }) => {
   const updateStatus = async (id: string, status: string) => {
     setMessage(null);
     try {
-      await apiRequest(`/api/orders/${id}/status`, { token: accessToken, method: 'PATCH', body: { status } });
+      await edgeRequest('update-order-status', { token: accessToken, method: 'PATCH', body: { orderId: id, status } });
       setOrders(p => p.map(o => o.id === id ? { ...o, status } : o));
       setMessage({ type: 'success', text: 'Status updated' });
     } catch (err: any) {
