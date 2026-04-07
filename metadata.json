@@ -1,0 +1,5 @@
+{
+  "name": "FoodyMood Subscription Ecosystem",
+  "description": "A comprehensive meal delivery platform with credit-based subscriptions, Stripe integration, and automated CRM workflows.",
+  "requestFramePermissions": []
+}
