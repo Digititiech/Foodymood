@@ -29,7 +29,7 @@ import type { Session } from '@supabase/supabase-js';
 interface Plan { id: string; name: string; meals_per_cycle: number; price_cents: number; }
 interface Meal { id: string; name: string; description: string | null; category: string | null; image_url?: string | null; }
 interface Subscription { id: string; remaining_credits: number; current_period_end: string; status: string; plans?: Plan | null; }
-interface UserData { id: string; name: string; email: string; role: 'user' | 'admin' | 'kitchen'; }
+interface UserData { id: string; name: string; email: string; role: 'user' | 'admin' | 'kitchen' | 'dev'; }
 type Order = {
   id: string;
   status: string;
@@ -48,6 +48,14 @@ type KitchenOrder = {
   created_at: string;
   users: { full_name: string | null } | null;
   order_items: Array<{ quantity: number; meals: { name: string } }>;
+};
+
+type DevUserAccount = {
+  id: string;
+  email: string | null;
+  full_name: string | null;
+  role: UserData['role'];
+  created_at: string;
 };
 
 const todayIsoDate = () => new Date().toISOString().split('T')[0];
@@ -104,11 +112,19 @@ const Navbar = ({ user, onLogout }: { user: UserData | null, onLogout: () => voi
               {user.role === 'user' && <Link to="/dashboard" className="hover:text-orange-500 transition-all">My Meals</Link>}
               {user.role === 'admin' && <Link to="/admin" className="hover:text-orange-500 transition-all">Admin</Link>}
               {user.role === 'kitchen' && <Link to="/kitchen" className="hover:text-orange-500 transition-all">Kitchen</Link>}
+              {user.role === 'dev' && (
+                <>
+                  <Link to="/dev" className="hover:text-orange-500 transition-all">Dev</Link>
+                  <Link to="/dashboard" className="hover:text-orange-500 transition-all">My Meals</Link>
+                  <Link to="/admin" className="hover:text-orange-500 transition-all">Admin</Link>
+                  <Link to="/kitchen" className="hover:text-orange-500 transition-all">Kitchen</Link>
+                </>
+              )}
             </div>
             <div className="flex items-center gap-3 pl-6 border-l border-neutral-100">
               <div className="hidden sm:block text-right">
                 <p className="text-xs font-bold text-neutral-900 leading-none">{user.name}</p>
-                <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest mt-1">{user.role}</p>
+                <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest mt-1">{user.role === 'dev' ? 'Dev' : user.role}</p>
               </div>
               <button onClick={onLogout} className="flex h-10 w-10 items-center justify-center rounded-xl border border-neutral-100 hover:bg-neutral-50 transition-all text-neutral-400 hover:text-red-500">
                 <LogOut size={18} />
@@ -239,7 +255,7 @@ const LoginPage = () => {
     }
 
     const role = (profile?.role ?? 'user') as UserData['role'];
-    navigate(role === 'admin' ? '/admin' : role === 'kitchen' ? '/kitchen' : '/dashboard');
+    navigate(role === 'dev' ? '/dev' : role === 'admin' ? '/admin' : role === 'kitchen' ? '/kitchen' : '/dashboard');
     setLoading(false);
   };
 
@@ -916,6 +932,106 @@ const KitchenDashboard = ({ accessToken }: { accessToken: string }) => {
   );
 };
 
+const DevDashboard = ({ accessToken }: { accessToken: string }) => {
+  const navigate = useNavigate();
+  const [users, setUsers] = useState<DevUserAccount[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setMessage(null);
+    try {
+      const data = await edgeRequest<DevUserAccount[]>('dev-users', { token: accessToken, query: { limit: '200' } });
+      setUsers(data ?? []);
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err?.message ?? 'Failed to load users' });
+    } finally {
+      setLoading(false);
+    }
+  }, [accessToken]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  return (
+    <div className="mx-auto max-w-7xl px-6 py-12">
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-8 mb-10">
+        <div>
+          <h1 className="text-4xl font-black tracking-tight text-neutral-900 flex items-center gap-4">
+            <LayoutDashboard className="text-orange-500" />
+            Dev Console
+          </h1>
+          <p className="text-neutral-500 font-bold mt-3">Super admin view. Access all dashboards and review user accounts.</p>
+        </div>
+        <div className="flex flex-wrap gap-3">
+          <button onClick={() => navigate('/dashboard')} className="rounded-full bg-neutral-900 px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-neutral-200 hover:bg-neutral-800 transition-all">
+            View User
+          </button>
+          <button onClick={() => navigate('/admin')} className="rounded-full bg-white px-5 py-2.5 text-sm font-bold text-neutral-900 border border-neutral-200 hover:bg-neutral-50 transition-all">
+            View Admin
+          </button>
+          <button onClick={() => navigate('/kitchen')} className="rounded-full bg-white px-5 py-2.5 text-sm font-bold text-neutral-900 border border-neutral-200 hover:bg-neutral-50 transition-all">
+            View Kitchen
+          </button>
+          <button onClick={refresh} className="rounded-full bg-orange-500 px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-orange-200 hover:bg-orange-600 transition-all">
+            Refresh Users
+          </button>
+        </div>
+      </div>
+
+      {message && (
+        <div className={`mb-8 rounded-3xl border p-5 font-bold ${message.type === 'error' ? 'border-red-100 bg-red-50 text-red-600' : 'border-green-100 bg-green-50 text-green-700'}`}>
+          {message.text}
+        </div>
+      )}
+
+      <section className="rounded-[2.5rem] bg-white p-8 shadow-2xl shadow-neutral-200/50 border border-neutral-100">
+        <div className="flex items-center justify-between gap-6 mb-6">
+          <h2 className="text-2xl font-bold flex items-center gap-3">
+            <Users size={22} className="text-orange-500" />
+            User Accounts
+          </h2>
+          <div className="text-xs font-bold uppercase tracking-widest text-neutral-400">
+            {loading ? 'Loading…' : `${users.length} users`}
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead>
+              <tr className="text-[11px] font-black uppercase tracking-widest text-neutral-400">
+                <th className="py-3 pr-4">Name</th>
+                <th className="py-3 pr-4">Email</th>
+                <th className="py-3 pr-4">Role</th>
+                <th className="py-3 pr-0">Created</th>
+              </tr>
+            </thead>
+            <tbody className="text-sm font-bold text-neutral-700">
+              {(users ?? []).map((u) => (
+                <tr key={u.id} className="border-t border-neutral-100">
+                  <td className="py-4 pr-4">{u.full_name ?? '—'}</td>
+                  <td className="py-4 pr-4">{u.email ?? '—'}</td>
+                  <td className="py-4 pr-4">
+                    <span className={`inline-flex items-center rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest ${u.role === 'dev' ? 'bg-orange-50 text-orange-600' : u.role === 'admin' ? 'bg-neutral-900 text-white' : u.role === 'kitchen' ? 'bg-green-50 text-green-700' : 'bg-neutral-100 text-neutral-700'}`}>
+                      {u.role === 'dev' ? 'Dev' : u.role}
+                    </span>
+                  </td>
+                  <td className="py-4 pr-0 text-neutral-500">{new Date(u.created_at).toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!loading && users.length === 0 && (
+            <div className="py-10 text-neutral-500 font-bold">No users found.</div>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+};
+
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<UserData | null>(null);
@@ -978,7 +1094,7 @@ export default function App() {
 
   const accessToken = session?.access_token ?? '';
   const authedHome =
-    user?.role === 'admin' ? '/admin' : user?.role === 'kitchen' ? '/kitchen' : '/dashboard';
+    user?.role === 'dev' ? '/dev' : user?.role === 'admin' ? '/admin' : user?.role === 'kitchen' ? '/kitchen' : '/dashboard';
 
   return (
     <BrowserRouter>
@@ -1004,7 +1120,7 @@ export default function App() {
             element={
               authLoading ? (
                 <div className="mx-auto max-w-md px-4 py-24 text-neutral-500 font-bold">Loading...</div>
-              ) : session && user?.role === 'user' ? (
+              ) : session && (user?.role === 'user' || user?.role === 'dev') ? (
                 <UserDashboard user={user} accessToken={accessToken} />
               ) : (
                 <Navigate to="/login" />
@@ -1016,7 +1132,7 @@ export default function App() {
             element={
               authLoading ? (
                 <div className="mx-auto max-w-md px-4 py-24 text-neutral-500 font-bold">Loading...</div>
-              ) : session && user?.role === 'admin' ? (
+              ) : session && (user?.role === 'admin' || user?.role === 'dev') ? (
                 <AdminDashboard accessToken={accessToken} />
               ) : (
                 <Navigate to="/login" />
@@ -1028,8 +1144,20 @@ export default function App() {
             element={
               authLoading ? (
                 <div className="mx-auto max-w-md px-4 py-24 text-neutral-500 font-bold">Loading...</div>
-              ) : session && user?.role === 'kitchen' ? (
+              ) : session && (user?.role === 'kitchen' || user?.role === 'dev') ? (
                 <KitchenDashboard accessToken={accessToken} />
+              ) : (
+                <Navigate to="/login" />
+              )
+            }
+          />
+          <Route
+            path="/dev"
+            element={
+              authLoading ? (
+                <div className="mx-auto max-w-md px-4 py-24 text-neutral-500 font-bold">Loading...</div>
+              ) : session && user?.role === 'dev' ? (
+                <DevDashboard accessToken={accessToken} />
               ) : (
                 <Navigate to="/login" />
               )

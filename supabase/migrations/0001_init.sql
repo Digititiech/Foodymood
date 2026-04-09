@@ -223,7 +223,7 @@ create table if not exists public.users (
   id uuid primary key,
   email text unique,
   full_name text,
-  role text not null default 'user' check (role in ('user', 'admin', 'kitchen')),
+  role text not null default 'user' check (role in ('user', 'admin', 'kitchen', 'dev')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

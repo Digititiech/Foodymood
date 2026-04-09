@@ -1,6 +1,6 @@
 import { createSupabaseAuthClient, createSupabaseServiceClient } from './supabase.ts';
 
-export type Role = 'user' | 'admin' | 'kitchen';
+export type Role = 'user' | 'admin' | 'kitchen' | 'dev';
 
 export type AuthContext = {
   userId: string;
@@ -35,6 +35,6 @@ export const getAuthContext = async (req: Request): Promise<AuthContext> => {
 };
 
 export const requireRole = (ctx: AuthContext, roles: Role[]) => {
+  if (ctx.role === 'dev') return;
   if (!roles.includes(ctx.role)) throw new Error('Forbidden');
 };
-
