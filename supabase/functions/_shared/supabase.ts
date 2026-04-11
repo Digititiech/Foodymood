@@ -1,5 +1,9 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.101.1';
 
+declare const Deno: {
+  env: { get: (key: string) => string | undefined };
+};
+
 const getEnv = (key: string) => {
   const value = Deno.env.get(key);
   if (!value) throw new Error(`Missing required env var: ${key}`);
@@ -22,4 +26,3 @@ export const createSupabaseAuthClient = (authorizationHeader: string | null) =>
       headers: authorizationHeader ? { Authorization: authorizationHeader } : {},
     },
   });
-
